@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  build-test:
+    name: Build, Vet, Fmt, Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: caretd
+          POSTGRES_USER: caretd
+          POSTGRES_PASSWORD: caretd
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U caretd"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # DSN pointing at the service container.  The caretd schema is created by
+      # migrations; only the database itself needs to exist beforehand (POSTGRES_DB above).
+      CARETD_DSN: "postgres://caretd:caretd@localhost:5432/caretd?sslmode=disable"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt check
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "The following files are not gofmt-clean:"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: go test (race)
+        run: go test ./... -race -count=1
